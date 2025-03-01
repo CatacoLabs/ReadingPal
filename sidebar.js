@@ -2,6 +2,7 @@
 let conversation = { messages: [] };
 let selectedText = '';
 let pendingQuestion = '';
+let currentStreamingRequestId = null;
 
 // DOM elements
 const conversationContainer = document.getElementById('conversationContainer');
@@ -12,6 +13,50 @@ const closeButton = document.getElementById('closeButton');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const suggestionsContainer = document.getElementById('suggestionsContainer');
 const settingsButton = document.getElementById('settingsButton');
+
+// Create a stop button for streaming
+const stopButton = document.createElement('button');
+stopButton.id = 'stopButton';
+stopButton.className = 'action-button cancel-button';
+stopButton.textContent = 'Stop';
+stopButton.style.display = 'none';
+stopButton.title = 'Stop generating response';
+// Insert stop button next to send button
+sendButton.parentNode.insertBefore(stopButton, sendButton.nextSibling);
+
+// Add stop button listener
+stopButton.addEventListener('click', stopGenerating);
+
+// Function to stop ongoing generation
+function stopGenerating() {
+  if (currentStreamingRequestId) {
+    chrome.runtime.sendMessage(
+      {
+        action: 'stopStreaming',
+        requestId: currentStreamingRequestId
+      },
+      response => {
+        console.log('Stop streaming response:', response);
+        // Reset state regardless of response
+        currentStreamingRequestId = null;
+        toggleStreamingUI(false);
+      }
+    );
+  }
+}
+
+// Toggle UI elements based on streaming state
+function toggleStreamingUI(isStreaming) {
+  if (isStreaming) {
+    loadingIndicator.style.display = 'flex';
+    stopButton.style.display = 'inline-flex';
+    sendButton.style.display = 'none';
+  } else {
+    loadingIndicator.style.display = 'none';
+    stopButton.style.display = 'none';
+    sendButton.style.display = 'inline-flex';
+  }
+}
 
 // Get all suggestion buttons and add click listeners
 const suggestionButtons = document.querySelectorAll('.suggestion-button');
@@ -89,6 +134,12 @@ function displayConversation() {
   conversation.messages.forEach(message => {
     const messageElement = document.createElement('div');
     messageElement.className = `message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`;
+    
+    // For streaming messages, set an ID so we can find and update it
+    if (message.isStreaming) {
+      messageElement.id = 'streaming-message';
+    }
+    
     messageElement.textContent = message.content;
     conversationContainer.appendChild(messageElement);
   });
@@ -101,24 +152,123 @@ function displayConversation() {
 }
 
 // Add a message to the conversation
-function addMessage(role, content) {
-  // Add message to the conversation
-  conversation.messages.push({
-    role: role,
-    content: content,
-    timestamp: new Date().toISOString()
-  });
+function addMessage(role, content, isStreaming = false) {
+  // For streamed responses, we'll either be updating an existing message or creating a new one
+  if (isStreaming && role === 'assistant') {
+    // Check if we already have a streaming message in progress
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    
+    // If the last message is an assistant message, update it instead of adding a new one
+    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isStreaming) {
+      lastMessage.content += content;
+      saveConversation();
+      displayConversation();
+      return;
+    }
+    
+    // Otherwise, add a new streaming message
+    conversation.messages.push({
+      role: role,
+      content: content,
+      timestamp: new Date().toISOString(),
+      isStreaming: true
+    });
+  } else {
+    // For regular (non-streaming) messages or user messages
+    conversation.messages.push({
+      role: role,
+      content: content,
+      timestamp: new Date().toISOString()
+    });
+  }
   
-  // Save and display
   saveConversation();
   displayConversation();
 }
 
+// Update a streaming message in the UI without redrawing the entire conversation
+function updateStreamingMessage(content, append = true) {
+  let streamingMsg = document.getElementById('streaming-message');
+  
+  // If no streaming message exists in the DOM yet, create one
+  if (!streamingMsg) {
+    // Find the last message in the conversation array
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    
+    // If the last message is an assistant message marked as streaming, update it
+    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isStreaming) {
+      if (append) {
+        lastMessage.content += content;
+      } else {
+        lastMessage.content = content;
+      }
+    } else {
+      // Create a new streaming message
+      conversation.messages.push({
+        role: 'assistant',
+        content: content,
+        timestamp: new Date().toISOString(),
+        isStreaming: true
+      });
+    }
+    
+    // Redraw the conversation
+    displayConversation();
+  } else {
+    // If streaming message exists, just update its content
+    if (append) {
+      streamingMsg.textContent += content;
+    } else {
+      streamingMsg.textContent = content;
+    }
+    
+    // Update the corresponding message in the conversation array
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isStreaming) {
+      if (append) {
+        lastMessage.content += content;
+      } else {
+        lastMessage.content = content;
+      }
+    }
+    
+    // Scroll to the bottom
+    conversationContainer.scrollTop = conversationContainer.scrollHeight;
+  }
+}
+
+// Finalize a streaming message (mark it as complete)
+function finalizeStreamingMessage() {
+  // Find the last message in the conversation array
+  const lastMessage = conversation.messages[conversation.messages.length - 1];
+  
+  // If the last message is an assistant message marked as streaming, mark it as complete
+  if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isStreaming) {
+    delete lastMessage.isStreaming;
+    saveConversation();
+  }
+  
+  // Update the UI to remove the streaming indicator
+  toggleStreamingUI(false);
+}
+
 // Send a message to Claude
 async function sendToAssistant(prompt) {
-  loadingIndicator.style.display = 'flex';
+  // Show streaming UI
+  toggleStreamingUI(true);
   
   try {
+    // First check if API key is configured
+    const apiKeyCheck = await new Promise((resolve) => {
+      chrome.storage.local.get(['anthropicApiKey'], function(result) {
+        resolve(result.anthropicApiKey);
+      });
+    });
+    
+    if (!apiKeyCheck) {
+      throw new Error('API key not found. Please set your Anthropic API key in the extension settings.');
+    }
+    
     const response = await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
         {
@@ -136,15 +286,51 @@ async function sendToAssistant(prompt) {
       );
     });
     
-    if (response.success) {
+    // Handle streamed response differently
+    if (response.success && response.streaming) {
+      // Store the requestId so we can cancel if needed
+      currentStreamingRequestId = response.requestId;
+      
+      // Create an empty assistant message that will be filled as we receive chunks
+      updateStreamingMessage('', false);
+      
+      // Note: We don't wait for the complete response here - it will come through
+      // the streamUpdate message handler as chunks
+    } else if (response.success) {
+      // This is for backward compatibility with non-streaming responses
       addMessage('assistant', response.data);
+      toggleStreamingUI(false);
     } else {
-      addMessage('assistant', `Error: ${response.error}`);
+      // Format error message to be more user-friendly
+      let errorMsg = response.error;
+      
+      // Check for common error patterns and provide better messages
+      if (errorMsg.includes('API key') || errorMsg.includes('invalid key') || errorMsg.includes('unauthorized')) {
+        errorMsg = 'Invalid API key. Please check your Anthropic API key in the extension settings.';
+      } else if (errorMsg.includes('rate limit') || errorMsg.includes('429')) {
+        errorMsg = 'Rate limit exceeded. Please wait a moment before trying again.';
+      } else if (errorMsg.includes('network') || errorMsg.includes('connection') || errorMsg.includes('timeout')) {
+        errorMsg = 'Network error. Please check your internet connection and try again.';
+      }
+      
+      addMessage('assistant', `Error: ${errorMsg}`);
+      toggleStreamingUI(false);
     }
   } catch (error) {
-    addMessage('assistant', `Error: ${error.message}`);
-  } finally {
-    loadingIndicator.style.display = 'none';
+    // Format error message to be more user-friendly
+    let errorMsg = error.message;
+    
+    // Check for common error patterns and provide better messages
+    if (errorMsg.includes('API key') || errorMsg.includes('invalid key') || errorMsg.includes('unauthorized')) {
+      errorMsg = 'API key issue. Please check your Anthropic API key in the extension settings.';
+    } else if (errorMsg.includes('rate limit') || errorMsg.includes('429')) {
+      errorMsg = 'Rate limit exceeded. Please wait a moment before trying again.';
+    } else if (errorMsg.includes('network') || errorMsg.includes('connection') || errorMsg.includes('timeout')) {
+      errorMsg = 'Network error. Please check your internet connection and try again.';
+    }
+    
+    addMessage('assistant', `Error: ${errorMsg}`);
+    toggleStreamingUI(false);
   }
 }
 
@@ -179,6 +365,10 @@ function handleClearConversation() {
 
 // Handle closing the sidebar
 function handleCloseSidebar() {
+  // Clear the conversation first
+  handleClearConversation();
+  
+  // Then close the sidebar
   window.parent.postMessage({ action: 'closeSidebar' }, '*');
 }
 
@@ -204,20 +394,23 @@ closeButton.addEventListener('click', handleCloseSidebar);
 window.addEventListener('message', function(event) {
   console.log('Sidebar received message:', event.data);
   
-  // Store the selected text to ensure it doesn't get lost
-  let selectedText = '';
-  
   // Check if the message is from our extension
   if (event.data && (event.data.action || event.data.type)) {
     console.log('Valid message received in sidebar');
     
-    // Check for different message formats for backward compatibility
+    // Get the selected text from the message
+    let selectedText = '';
     if (event.data.selectedText) {
       selectedText = event.data.selectedText;
       console.log('Selected text from event.data.selectedText, length:', selectedText.length);
     } else if (event.data.text) {
       selectedText = event.data.text;
       console.log('Selected text from event.data.text, length:', selectedText.length);
+    }
+    
+    if (!selectedText || selectedText.trim() === '') {
+      console.log('No selected text in message');
+      return;
     }
     
     // Get the message input field
@@ -242,10 +435,8 @@ window.addEventListener('message', function(event) {
         // Focus the input field
         messageInput.focus();
         
-        // Resize the textarea if needed
-        if (typeof resizeTextarea === 'function') {
-          resizeTextarea(messageInput);
-        }
+        // Auto-resize the textarea
+        autoResizeTextarea();
         
         console.log('Text set successfully, current length:', messageInput.value.length);
       } catch (error) {
@@ -262,37 +453,18 @@ window.addEventListener('message', function(event) {
     const action = event.data.action || '';
     const type = event.data.type || '';
     
-    if (action === 'summarize' || type === 'prefillSummarize' || type === 'summarize') {
-      console.log('Handling summarize action');
-      const summaryPrefix = 'Summarize this: ';
-      setText(selectedText, summaryPrefix);
-    } 
-    else if (action === 'explain' || type === 'explain') {
-      console.log('Handling explain action');
-      const explainPrefix = 'Explain this: ';
-      setText(selectedText, explainPrefix);
+    // Determine prefix based on action/type
+    let prefix = '';
+    if (action === 'summarize' || type === 'summarize') {
+      prefix = 'Summarize this: ';
+    } else if (action === 'explain' || type === 'explain') {
+      prefix = 'Explain this: ';
+    } else if (action === 'simplify' || type === 'simplify') {
+      prefix = 'Simplify this: ';
     }
-    else if (action === 'simplify' || type === 'simplify') {
-      console.log('Handling simplify action');
-      const simplifyPrefix = 'Simplify this: ';
-      setText(selectedText, simplifyPrefix);
-    }
-    else if (action === 'askQuestion' || type === 'prefillText') {
-      console.log('Handling ask question action');
-      setText(selectedText);
-    }
-    else if (type === 'processSelectedText') {
-      console.log('Processing selected text with type:', event.data.type);
-      
-      // Handle different processing types
-      if (event.data.type === 'prefillSummarize') {
-        const summaryPrefix = 'Summarize this: ';
-        setText(selectedText, summaryPrefix);
-      } 
-      else if (event.data.type === 'prefillText') {
-        setText(selectedText);
-      }
-    }
+    
+    // Set the text with the appropriate prefix
+    setText(selectedText, prefix);
   }
 });
 
@@ -302,7 +474,11 @@ window.addEventListener('load', function() {
   
   // Let the content script know the sidebar is ready
   try {
-    window.parent.postMessage({ action: 'sidebarReady' }, '*');
+    window.parent.postMessage({ 
+      action: 'sidebarReady',
+      status: 'initialized',
+      timestamp: Date.now()
+    }, '*');
   } catch (e) {
     console.error('Could not send ready message to parent:', e);
   }
@@ -329,34 +505,32 @@ document.addEventListener('DOMContentLoaded', function() {
     console.error('Could not find messageInput element on DOM content loaded!');
   }
   
-  // Log when the sidebar is fully initialized
-  console.log('Sidebar initialized and ready for messages');
-  
-  // Notify the parent window (content script) that we're ready
-  try {
-    window.parent.postMessage({ 
-      action: 'sidebarReady', 
-      status: 'initialized',
-      timestamp: Date.now()
-    }, '*');
-  } catch (e) {
-    console.error('Error sending ready message to parent:', e);
-  }
+  // Load the conversation
+  loadConversation();
 });
 
-// Define a function to resize textareas based on content
-function resizeTextarea(textarea) {
-  if (!textarea) return;
+// Listen for runtime messages including streaming updates
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('Sidebar received runtime message:', message);
   
-  // Save the current height
-  const currentHeight = textarea.style.height;
+  if (message.action === 'streamUpdate') {
+    // Make sure it's for the current request
+    if (currentStreamingRequestId === message.requestId) {
+      if (!message.done) {
+        // Update the streaming message with the new chunk
+        updateStreamingMessage(message.text);
+      } else {
+        // Stream is complete
+        finalizeStreamingMessage();
+        currentStreamingRequestId = null;
+      }
+    }
+    
+    sendResponse({ received: true });
+    return true;
+  }
   
-  // Reset the height temporarily to get the scroll height
-  textarea.style.height = 'auto';
-  
-  // Set the height to the scroll height
-  const newHeight = (textarea.scrollHeight) + 'px';
-  textarea.style.height = newHeight;
-  
-  console.log(`Resized textarea from ${currentHeight} to ${newHeight}`);
-} 
+  // For other messages
+  sendResponse({ status: 'Message received by sidebar' });
+  return true;
+}); 

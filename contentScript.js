@@ -15,6 +15,56 @@ let resizeInProgress = false;
 let pendingText = null;
 let pendingAction = null;
 
+// Create and show an in-page notification for the user
+function showNotification(message, type = 'info') {
+  // Create notification element if it doesn't exist
+  let notification = document.getElementById('readingpal-notification');
+  if (!notification) {
+    notification = document.createElement('div');
+    notification.id = 'readingpal-notification';
+    
+    // Base styles
+    const baseStyles = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 10px 15px;
+      border-radius: 4px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      z-index: 2147483646;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      transition: opacity 0.3s ease;
+      color: white;
+      max-width: 300px;
+    `;
+    
+    notification.style.cssText = baseStyles;
+    document.body.appendChild(notification);
+  }
+  
+  // Set color based on type
+  const bgColor = type === 'error' ? '#f44336' : 
+                 type === 'warning' ? '#ff9800' : 
+                 '#2196F3'; // info (default)
+  
+  notification.style.backgroundColor = bgColor;
+  
+  // Set message and show notification
+  notification.textContent = message;
+  notification.style.opacity = '1';
+  
+  // Hide notification after 3 seconds
+  setTimeout(() => {
+    notification.style.opacity = '0';
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 300);
+  }, 3000);
+}
+
 // Create and inject the custom styles for handling the sidebar
 function injectCustomStyles() {
   // If already injected, don't do it again
@@ -427,11 +477,26 @@ function handleSelectedText(text, action = 'summarize') {
   // Safety check in case text is undefined
   if (!text || typeof text !== 'string' || text.trim() === '') {
     console.error('No valid text was provided to handleSelectedText');
+    showNotification('Please select some text first.', 'warning');
     return;
   }
   
   // Make a backup copy of the selected text
   const selectedText = text;
+  
+  // Check if text is too short for meaningful processing
+  if (selectedText.trim().length < 10) {
+    console.warn('Selected text is too short for meaningful processing');
+    showNotification('Selected text is too short. Please select a longer passage.', 'warning');
+    return;
+  }
+  
+  // Check if text is very long and might cause issues
+  if (selectedText.length > 10000) {
+    console.warn('Selected text is very long, this might affect response quality');
+    showNotification('Selected text is very long. Consider selecting a smaller passage for better results.', 'warning');
+    // Note: we still proceed with processing, just warn the user
+  }
   
   // Show the sidebar
   showSidebar();
@@ -466,6 +531,8 @@ function handleSelectedText(text, action = 'summarize') {
         return;
       } else {
         console.error('Max attempts reached. Sidebar not ready.');
+        // Notify the user about the issue
+        showNotification('Unable to process selected text. Please try again.', 'error');
         // Try to create sidebar as a last resort
         createSidebar();
         return;
@@ -514,14 +581,17 @@ function handleSelectedText(text, action = 'summarize') {
             messageInput.focus();
           } else {
             console.error('Could not find messageInput in sidebar DOM');
+            showNotification('Unable to prepare text for processing. Please try again.', 'warning');
           }
         }
       } catch (err) {
         console.error('Error directly manipulating sidebar DOM:', err);
+        showNotification('Problem accessing sidebar. Please try refreshing the page.', 'error');
       }
       
     } catch (error) {
       console.error('Error sending selected text to sidebar:', error);
+      showNotification('Failed to send text to sidebar. Please try again.', 'error');
     }
   };
   
@@ -530,45 +600,6 @@ function handleSelectedText(text, action = 'summarize') {
   
   // Also debug the sidebar state
   setTimeout(debugSidebar, 1000);
-}
-
-// Create and show a notification
-function showNotification(message) {
-  // Create notification element if it doesn't exist
-  let notification = document.getElementById('readingpal-notification');
-  if (!notification) {
-    notification = document.createElement('div');
-    notification.id = 'readingpal-notification';
-    notification.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background-color: #2196F3;
-      color: white;
-      padding: 10px 15px;
-      border-radius: 4px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-      z-index: 10000;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      transition: opacity 0.3s ease;
-    `;
-    document.body.appendChild(notification);
-  }
-  
-  // Set message and show notification
-  notification.textContent = message;
-  notification.style.opacity = '1';
-  
-  // Hide notification after 3 seconds
-  setTimeout(() => {
-    notification.style.opacity = '0';
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
-      }
-    }, 300);
-  }, 3000);
 }
 
 // Get the page content
@@ -628,7 +659,10 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     handleSelectedText(text, action);
   }
   else if (message.action === 'showNotification') {
-    showNotification(message.message);
+    // Show in-page notification with the provided message and type
+    const messageText = message.message || 'Something happened'; 
+    const messageType = message.type || 'info';
+    showNotification(messageText, messageType);
   }
   
   // Return true to indicate we'll send a response asynchronously
@@ -637,8 +671,10 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
 
 // Listen for messages from the sidebar
 window.addEventListener('message', (event) => {
-  // Make sure the message is from our sidebar
+  // Check if message is from sidebar
   if (event.source === sidebarFrame?.contentWindow) {
+    console.log('Message from sidebar:', event.data);
+    
     if (event.data.action === 'closeSidebar') {
       hideSidebar();
     } else if (event.data.action === 'getPageContent') {
@@ -648,26 +684,18 @@ window.addEventListener('message', (event) => {
         action: 'receivePageContent',
         pageContent: pageContent
       }, '*');
-    }
-  }
-});
-
-// Listen for window messages from the sidebar
-window.addEventListener('message', function(event) {
-  console.log('Content script received window message:', event.data);
-  
-  // Check if message is from sidebar
-  if (event.data && event.data.action === 'sidebarReady') {
-    console.log('Sidebar notified content script that it is ready');
-    
-    // If we have pending text to process, do it now
-    if (pendingText) {
-      console.log('Processing pending text now that sidebar is ready');
-      handleSelectedText(pendingText, pendingAction || 'summarize');
+    } else if (event.data.action === 'sidebarReady') {
+      console.log('Sidebar notified content script that it is ready');
       
-      // Clear the pending text
-      pendingText = null;
-      pendingAction = null;
+      // If we have pending text to process, do it now
+      if (pendingText) {
+        console.log('Processing pending text now that sidebar is ready');
+        handleSelectedText(pendingText, pendingAction || 'summarize');
+        
+        // Clear the pending text
+        pendingText = null;
+        pendingAction = null;
+      }
     }
   }
 });

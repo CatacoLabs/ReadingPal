@@ -36,7 +36,7 @@ chrome.runtime.onInstalled.addListener(() => {
     console.log('Created context menu items');
   });
   
-  // Set up options page
+  // Open options page for first-time setup
   if (chrome.runtime.openOptionsPage) {
     chrome.runtime.openOptionsPage();
   } else {
@@ -59,14 +59,7 @@ function onContextMenuClick(info, tab) {
         console.log('Recovered valid tab:', tabs[0].id);
         handleContextMenuAction(info, tabs[0]);
       } else {
-        // Show notification to user if we still can't get a valid tab
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: 'ReadingPal',
-          message: 'Cannot summarize text on this page. Try a regular web page instead.',
-          priority: 2
-        });
+        showErrorNotification('Cannot process text on this page. Try a regular web page instead.');
       }
     });
     
@@ -75,6 +68,17 @@ function onContextMenuClick(info, tab) {
   
   // If we have a valid tab, proceed normally
   handleContextMenuAction(info, tab);
+}
+
+// Helper function to show error notifications
+function showErrorNotification(message) {
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icon48.png',
+    title: 'ReadingPal',
+    message: message,
+    priority: 2
+  });
 }
 
 // Handle the actual context menu action
@@ -92,18 +96,9 @@ function handleContextMenuAction(info, tab) {
       if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url === 'about:blank') {
         console.error('Cannot inject content script into this type of page:', url);
         
-        // Show notification to user
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: 'ReadingPal',
-          message: info.menuItemId === 'summarize' 
-            ? 'Cannot summarize text on this page. Try a regular web page instead.' 
-            : info.menuItemId === 'explain' 
-              ? 'Cannot explain text on this page. Try a regular web page instead.'
-              : 'Cannot simplify text on this page. Try a regular web page instead.',
-          priority: 2
-        });
+        // Get appropriate error message based on action type
+        let errorMessage = 'Cannot process text on this page. Try a regular web page instead.';
+        showErrorNotification(errorMessage);
         
         return;
       }
@@ -156,9 +151,18 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   
   // Handle specific actions
   if (message.action === 'callClaudeAPI') {
+    // Call the API and handle streaming
     callClaudeAPI(message.prompt, message.conversation)
-      .then(response => {
-        sendResponse({ success: true, data: response });
+      .then(result => {
+        // Send the requestId back immediately so the UI can display the loading state
+        // and have a reference for cancellation
+        sendResponse({ 
+          success: true, 
+          requestId: result.requestId,
+          streaming: true 
+        });
+        
+        // The actual content will come through separate messages as the stream progresses
       })
       .catch(error => {
         console.error('Error calling Claude API:', error);
@@ -169,6 +173,11 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
       });
     return true; // Required for async sendResponse
   } 
+  else if (message.action === 'stopStreaming') {
+    const stopped = stopStreaming(message.requestId);
+    sendResponse({ success: stopped });
+    return true;
+  }
   else if (message.action === 'verifyApiKey') {
     console.log('Verifying API key...');
     
@@ -208,6 +217,16 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   return true; // Keep the message channel open for async responses
 });
 
+// Helper function to get Claude API headers
+function getClaudeHeaders(apiKey) {
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true'
+  };
+}
+
 // Special test function to verify API key without getting models
 async function testApiKey(apiKey) {
   try {
@@ -215,12 +234,7 @@ async function testApiKey(apiKey) {
     // Claude API always requires a message, so we'll use the simplest possible request
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
+      headers: getClaudeHeaders(apiKey),
       body: JSON.stringify({
         model: 'claude-3-haiku-20240307', // Use the smallest model for testing
         max_tokens: 1, // Minimize token usage
@@ -264,12 +278,7 @@ async function verifyApiKey(apiKey) {
     console.log('Verifying API key...');
     const response = await fetch('https://api.anthropic.com/v1/models', {
       method: 'GET',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      }
+      headers: getClaudeHeaders(apiKey)
     });
     
     console.log('API response status:', response.status, response.statusText);
@@ -377,6 +386,9 @@ function getDefaultModels() {
   ];
 }
 
+// Initialize global variables
+let activeStreams = new Map();
+
 // Function to call Claude API
 async function callClaudeAPI(prompt, conversation) {
   // Get the API key and selected model
@@ -385,7 +397,7 @@ async function callClaudeAPI(prompt, conversation) {
   const model = result.selectedModel || 'claude-3-opus-20240229'; // Default model if none selected
   
   if (!apiKey) {
-    throw new Error('API key not found. Please set your Anthropic API key in the settings.');
+    throw new Error('API key not found. Please set your Anthropic API key in the extension settings. Click on the extension icon and select "Settings" to configure.');
   }
   
   // Prepare the conversation history for Claude
@@ -412,34 +424,175 @@ async function callClaudeAPI(prompt, conversation) {
   // System message content
   const systemMessage = "You are Claude, an AI assistant helping users understand text they've selected from webpages. Be concise, helpful, and accurate.";
   
+  // Create a unique identifier for this request to track cancellations
+  const requestId = Date.now().toString();
+  
   try {
+    // Create fetch request for streaming
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
+        ...getClaudeHeaders(apiKey),
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: model,
         max_tokens: 1024,
-        system: systemMessage, // System message as a top-level parameter
+        stream: true,
+        system: systemMessage,
         messages: messages
       })
     });
     
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'Failed to get response from Claude API');
+      const errorData = await response.json().catch(() => ({}));
+      const errorMsg = errorData.error?.message || `API Error: ${response.status} ${response.statusText}`;
+      
+      // Add specific suggestions for common error codes
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(`${errorMsg}. Your API key may be invalid. Please check your Anthropic API key in the extension settings.`);
+      } else if (response.status === 429) {
+        throw new Error(`${errorMsg}. You've hit a rate limit. Please wait a moment before trying again.`);
+      } else {
+        throw new Error(errorMsg);
+      }
     }
     
-    const data = await response.json();
-    return data.content[0].text;
+    // Get response body stream reader
+    const reader = response.body.getReader();
+    let accumulatedContent = "";
+    
+    // Store the reader in our active streams map
+    activeStreams.set(requestId, reader);
+    
+    // Create a promise that will be resolved when the stream completes or is cancelled
+    const streamPromise = new Promise(async (resolve, reject) => {
+      try {
+        let done = false;
+        
+        while (!done) {
+          const { value, done: doneReading } = await reader.read();
+          done = doneReading;
+          
+          if (done) {
+            // Stream completed normally
+            resolve(accumulatedContent);
+            break;
+          }
+          
+          // Convert Uint8Array to string
+          const chunk = new TextDecoder().decode(value);
+          
+          try {
+            // Process the chunk - it now uses Server-Sent Events (SSE) format
+            // Each event has format: "event: event_type\ndata: {json_data}\n\n"
+            const lines = chunk.split('\n');
+            let currentEvent = '';
+            let currentData = '';
+            
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i].trim();
+              
+              if (line.startsWith('event:')) {
+                currentEvent = line.substring(6).trim();
+              } else if (line.startsWith('data:')) {
+                currentData = line.substring(5).trim();
+                
+                // If we have both event and data, process them
+                if (currentEvent && currentData) {
+                  try {
+                    const data = JSON.parse(currentData);
+                    
+                    if (currentEvent === 'content_block_delta' && data.delta?.type === 'text_delta') {
+                      // Extract and append the text delta
+                      const textDelta = data.delta.text || '';
+                      accumulatedContent += textDelta;
+                      
+                      // Send the partial response to the sidebar
+                      chrome.runtime.sendMessage({
+                        action: 'streamUpdate',
+                        requestId: requestId,
+                        text: textDelta,
+                        done: false
+                      });
+                    } else if (currentEvent === 'message_stop') {
+                      // Message is complete
+                      activeStreams.delete(requestId);
+                      
+                      // Send a final message to indicate completion
+                      chrome.runtime.sendMessage({
+                        action: 'streamUpdate',
+                        requestId: requestId,
+                        text: '',
+                        done: true
+                      });
+                    }
+                    
+                    // Reset for next event
+                    currentEvent = '';
+                    currentData = '';
+                  } catch (jsonError) {
+                    console.error('Error parsing SSE data JSON:', jsonError, 'Data:', currentData);
+                  }
+                }
+              } else if (line === '') {
+                // Empty line indicates end of an event
+                currentEvent = '';
+                currentData = '';
+              }
+            }
+          } catch (parseError) {
+            console.error('Error parsing streaming response:', parseError, 'Chunk:', chunk);
+          }
+        }
+      } catch (error) {
+        if (error.name === 'AbortError' || error.message.includes('abort')) {
+          // Stream was aborted by user
+          activeStreams.delete(requestId);
+          resolve(''); // Resolve with empty string to indicate cancellation
+        } else {
+          // Some other error occurred
+          reject(error);
+        }
+      }
+    });
+    
+    return {
+      requestId: requestId,
+      streamPromise: streamPromise
+    };
   } catch (error) {
     console.error('Error calling Claude API:', error);
+    
+    // Make error message more helpful if it's an API key problem
+    if (error.message.includes('API key') || error.message.includes('401') || error.message.includes('403')) {
+      // Show notification to direct user to settings
+      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        if (tabs && tabs.length > 0) {
+          chrome.tabs.sendMessage(tabs[0].id, { 
+            action: 'showNotification',
+            message: 'API key issue detected. Please check your settings.',
+            type: 'error'
+          });
+        }
+      });
+    }
+    
     throw error;
   }
+}
+
+// Function to stop a streaming response
+function stopStreaming(requestId) {
+  if (activeStreams && activeStreams.has(requestId)) {
+    const reader = activeStreams.get(requestId);
+    if (reader && typeof reader.cancel === 'function') {
+      reader.cancel();
+      activeStreams.delete(requestId);
+    }
+    return true;
+  }
+  return false; // Stream not found or already completed
 }
 
 // Handle browser action (extension icon) click
@@ -458,16 +611,7 @@ chrome.action.onClicked.addListener(function(tab) {
     const url = tabInfo.url || '';
     if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url === 'about:blank') {
       console.error('Cannot inject content script into this type of page:', url);
-      
-      // Show notification to user
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon48.png',
-        title: 'ReadingPal',
-        message: 'ReadingPal cannot be used on this page type.',
-        priority: 2
-      });
-      
+      showErrorNotification('ReadingPal cannot be used on this page type.');
       return;
     }
     
