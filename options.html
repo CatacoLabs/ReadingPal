@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ReadingPal Settings</title>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    label {
+      font-weight: bold;
+    }
+    input[type="text"], input[type="password"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    button {
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background-color: #0b7dda;
+    }
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      display: none;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .title img {
+      width: 32px;
+      height: 32px;
+    }
+    .api-key-container {
+      display: flex;
+      gap: 10px;
+    }
+    .api-key-input-container {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      gap: 5px;
+    }
+    .api-key-input {
+      flex: 1;
+    }
+    .toggle-visibility {
+      cursor: pointer;
+      color: #666;
+      background: none;
+      border: none;
+      padding: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 30px;
+    }
+    .toggle-visibility:hover {
+      color: #333;
+    }
+    .toggle-visibility svg {
+      width: 20px;
+      height: 20px;
+    }
+    .model-selection {
+      display: none;
+      margin-top: 15px;
+    }
+    .model-selection select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      margin-top: 5px;
+    }
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255,255,255,.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s ease-in-out infinite;
+      margin-left: 10px;
+      display: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .button-container {
+      display: flex;
+      gap: 10px;
+    }
+    #verifyButton {
+      background-color: #4CAF50;
+    }
+    #verifyButton:hover {
+      background-color: #45a049;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">
+      <img src="icons/icon48.png" alt="ReadingPal Logo">
+      <h1>ReadingPal Settings</h1>
+    </div>
+    
+    <div class="form-group">
+      <label for="apiKey">Anthropic API Key</label>
+      <div class="api-key-container">
+        <div class="api-key-input-container">
+          <input type="password" id="apiKey" class="api-key-input" placeholder="Enter your Anthropic API key">
+          <button type="button" class="toggle-visibility" id="toggleVisibility">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+        </div>
+        <button id="verifyButton">Verify Key</button>
+        <div class="loading" id="loadingIndicator"></div>
+      </div>
+      <small>Your API key is stored locally and is only used to communicate with Anthropic's Claude API.</small>
+    </div>
+    
+    <div class="form-group model-selection" id="modelSelectionContainer">
+      <label for="modelSelect">Select Claude Model</label>
+      <select id="modelSelect"></select>
+      <small>Choose the Claude model you want to use for your conversations.</small>
+    </div>
+    
+    <div class="button-container">
+      <button id="saveButton">Save Settings</button>
+    </div>
+    
+    <div id="status" class="status"></div>
+  </div>
+  
+  <script src="options.js"></script>
+</body>
+</html> 

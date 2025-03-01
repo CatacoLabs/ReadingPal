@@ -1,0 +1,63 @@
+---
+description: Best practices for developing Chrome extensions
+globs: *.ts,*.js
+alwaysApply: false
+---
+---
+name: chrome-extension-best-practices.mdc
+description: Best practices for developing Chrome extensions
+globs: **/*.{ts,js}
+---
+
+- Use the Manifest V3 for better performance and security
+- Implement proper content security policy (CSP) to prevent XSS attacks
+- Use chrome.storage for persistent data storage instead of localStorage
+- Optimize background scripts to minimize resource usage
+- Implement proper error handling and logging for debugging
+
+---
+name: webextension-polyfill-best-practices.mdc
+description: Best practices for using the WebExtension Polyfill
+globs: **/*.{ts,js}
+---
+
+- Use the polyfill to ensure cross-browser compatibility
+- Import the polyfill at the top of your scripts
+- Use async/await syntax with the polyfill's promise-based API
+- Test your extension on multiple browsers to ensure compatibility
+
+---
+name: typescript-best-practices.mdc
+description: TypeScript coding standards and type safety guidelines for Chrome extensions
+globs: **/*.{ts}
+---
+
+- Use strict null checks to prevent null pointer exceptions
+- Define custom types for Chrome API objects to improve type safety
+- Use type guards to narrow types in conditional statements
+- Implement proper type inference for better code readability
+- Use enums for defining extension-specific constants
+
+---
+name: react-best-practices.mdc
+description: Best practices for using React in Chrome extensions
+globs: **/*.{tsx,jsx}
+---
+
+- Use React for building UI components in your extension
+- Implement proper state management using Context API or Redux
+- Use React.memo for optimizing performance of pure components
+- Implement proper error boundaries to handle runtime errors
+- Use React hooks for managing side effects and state logic
+
+---
+name: tailwindcss-best-practices.mdc
+description: Best practices for using Tailwind CSS in Chrome extensions
+globs: **/*.{tsx,jsx,css}
+---
+
+- Use Tailwind CSS utility classes for styling your extension's UI
+- Implement a custom theme to ensure consistent branding
+- Use responsive utility classes for mobile-friendly designs
+- Optimize your CSS bundle size by purging unused styles
+- Use Tailwind's JIT mode for faster build times and smaller bundle sizes

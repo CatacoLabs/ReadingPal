@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background-color: white;
+      box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
+    }
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 15px;
+      background-color: #2196F3;
+      color: white;
+    }
+    .sidebar-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: bold;
+    }
+    .sidebar-title img {
+      width: 20px;
+      height: 20px;
+    }
+    .close-button {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .conversation-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .message {
+      padding: 10px 15px;
+      border-radius: 8px;
+      max-width: 85%;
+      word-wrap: break-word;
+    }
+    .user-message {
+      align-self: flex-end;
+      background-color: #e3f2fd;
+    }
+    .assistant-message {
+      align-self: flex-start;
+      background-color: #f5f5f5;
+    }
+    .input-container {
+      display: flex;
+      padding: 10px;
+      border-top: 1px solid #eee;
+    }
+    .message-input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: none;
+      font-family: inherit;
+    }
+    .send-button {
+      margin-left: 10px;
+      padding: 0 15px;
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .send-button:hover {
+      background-color: #0b7dda;
+    }
+    .actions-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 15px;
+      border-top: 1px solid #eee;
+    }
+    .clear-button {
+      padding: 5px 10px;
+      background-color: #f44336;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .clear-button:hover {
+      background-color: #d32f2f;
+    }
+    .loading {
+      display: none;
+      align-self: center;
+      margin: 20px 0;
+    }
+    .loading-spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #2196F3;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    /* Updated styles for suggestion buttons in vertical layout */
+    .suggestions-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 15px;
+      border-top: 1px solid #eee;
+    }
+    .suggestion-button {
+      background-color: #f8f9fa;
+      border: 1px solid #dadce0;
+      border-radius: 24px;
+      color: #3c4043;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      transition: background-color 0.2s;
+      width: 100%;
+    }
+    .suggestion-button:hover {
+      background-color: #f1f3f4;
+    }
+    .suggestion-button .icon {
+      margin-right: 8px;
+      font-size: 16px;
+    }
+    .suggestion-button .summarize-icon::before {
+      content: "📝";
+    }
+    .suggestion-button .explain-icon::before {
+      content: "🔍";
+    }
+    .suggestion-button .simplify-icon::before {
+      content: "📚";
+    }
+    /* Styles for the footer elements */
+    .footer-logo {
+      height: 24px;
+    }
+    .settings-icon {
+      color: #757575;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .settings-icon:hover {
+      color: #2196F3;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar-container">
+    <div class="sidebar-header">
+      <div class="sidebar-title">
+        <img src="icons/icon48.png" alt="ReadingPal Logo">
+        <span>ReadingPal</span>
+      </div>
+      <button class="close-button" id="closeButton">×</button>
+    </div>
+    
+    <div class="conversation-container" id="conversationContainer">
+      <!-- Messages will be added here dynamically -->
+    </div>
+    
+    <div class="loading" id="loadingIndicator">
+      <div class="loading-spinner"></div>
+    </div>
+    
+    <!-- Suggestions container with vertical layout -->
+    <div class="suggestions-container" id="suggestionsContainer">
+      <button class="suggestion-button" data-text="Summarize this">
+        <span class="icon summarize-icon"></span>
+        Summarize this
+      </button>
+      <button class="suggestion-button" data-text="Explain this">
+        <span class="icon explain-icon"></span>
+        Explain this
+      </button>
+      <button class="suggestion-button" data-text="Simplify this">
+        <span class="icon simplify-icon"></span>
+        Simplify this
+      </button>
+    </div>
+    
+    <div class="input-container">
+      <textarea class="message-input" id="messageInput" placeholder="Type your message..." rows="2"></textarea>
+      <button class="send-button" id="sendButton">Send</button>
+    </div>
+    
+    <div class="actions-container">
+      <a href="https://catacolabs.com" target="_blank">
+        <img src="icons/catacolabs.png" alt="Catacolabs" class="footer-logo">
+      </a>
+      <button class="clear-button" id="clearButton">Clear Conversation</button>
+      <span class="settings-icon" id="settingsButton">⚙️</span>
+    </div>
+  </div>
+  
+  <script src="sidebar.js"></script>
+</body>
+</html> 

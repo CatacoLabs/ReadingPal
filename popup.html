@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ReadingPal</title>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 15px;
+      font-family: Arial, sans-serif;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .toggle-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 24px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: #2196F3;
+    }
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+    .settings-link {
+      text-align: center;
+      margin-top: 10px;
+    }
+    .settings-link a {
+      color: #2196F3;
+      text-decoration: none;
+    }
+    .settings-link a:hover {
+      text-decoration: underline;
+    }
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .title img {
+      width: 24px;
+      height: 24px;
+    }
+    .refresh-button-container {
+      display: none;
+      text-align: center;
+      margin-top: 10px;
+    }
+    .refresh-button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      width: 100%;
+    }
+    .refresh-button:hover {
+      background-color: #45a049;
+    }
+    .note {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">
+      <img src="icons/icon48.png" alt="ReadingPal Logo">
+      <h2>ReadingPal</h2>
+    </div>
+    
+    <div class="toggle-container">
+      <span>Enable ReadingPal</span>
+      <label class="switch">
+        <input type="checkbox" id="toggleSidebar">
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <div class="refresh-button-container" id="refreshButtonContainer">
+      <button class="refresh-button" id="refreshButton">Refresh Page</button>
+      <div class="note">Refresh to see changes on the current page</div>
+    </div>
+    
+    <div class="settings-link">
+      <a href="#" id="settingsLink">Settings</a>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html> 
